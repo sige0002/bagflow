@@ -34,9 +34,19 @@ enum Cmd {
         /// pair with a pre-started `dora up` daemon)
         #[arg(long)]
         no_attach: bool,
+        /// Override the flow's `bag` (per-job invocation without editing YAML)
+        #[arg(long)]
+        bag: Option<PathBuf>,
+        /// Override the flow's `report` output path
+        #[arg(long)]
+        report: Option<PathBuf>,
     },
     /// Preflight-check only
-    Check { flow: PathBuf },
+    Check {
+        flow: PathBuf,
+        #[arg(long)]
+        bag: Option<PathBuf>,
+    },
 }
 
 // ---------- user flow definition ----------
@@ -209,7 +219,19 @@ struct Plan {
     workdir: PathBuf,
 }
 
-fn preflight(flow_path: &Path) -> Result<Plan> {
+fn cwd_abs(p: PathBuf) -> Result<PathBuf> {
+    if p.is_absolute() {
+        Ok(p)
+    } else {
+        Ok(std::env::current_dir()?.join(p))
+    }
+}
+
+fn preflight(
+    flow_path: &Path,
+    bag_override: Option<PathBuf>,
+    report_override: Option<PathBuf>,
+) -> Result<Plan> {
     let flow_dir = flow_path
         .parent()
         .map(Path::to_path_buf)
@@ -221,7 +243,10 @@ fn preflight(flow_path: &Path) -> Result<Plan> {
     )
     .context("parse flow yaml")?;
 
-    let bag = abs(&flow_dir, &flow.bag);
+    let bag = match bag_override {
+        Some(b) => cwd_abs(b)?,
+        None => abs(&flow_dir, &flow.bag),
+    };
     if !bag.exists() {
         bail!("bag not found: {}", bag.display());
     }
@@ -320,7 +345,10 @@ fn preflight(flow_path: &Path) -> Result<Plan> {
 
     let workdir = flow_dir.join(".bagflow");
     let pylib = workdir.join("pylib");
-    let report_path = abs(&flow_dir, &flow.report);
+    let report_path = match report_override {
+        Some(r) => cwd_abs(r)?,
+        None => abs(&flow_dir, &flow.report),
+    };
 
     let exe_dir = std::env::current_exe()?
         .parent()
@@ -475,8 +503,8 @@ fn write_workdir(plan: &Plan) -> Result<PathBuf> {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Check { flow } => {
-            let plan = preflight(&flow)?;
+        Cmd::Check { flow, bag } => {
+            let plan = preflight(&flow, bag, None)?;
             println!("preflight OK — subscribed topics:");
             for (t, count) in &plan.topics {
                 match count {
@@ -487,8 +515,13 @@ fn main() -> Result<()> {
             println!("report: {}", plan.report_path.display());
             Ok(())
         }
-        Cmd::Run { flow, no_attach } => {
-            let plan = preflight(&flow)?;
+        Cmd::Run {
+            flow,
+            no_attach,
+            bag,
+            report,
+        } => {
+            let plan = preflight(&flow, bag, report)?;
             let dataflow_path = write_workdir(&plan)?;
 
             // best effort: coordinator/daemon may already be running

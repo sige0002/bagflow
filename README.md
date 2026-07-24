@@ -65,6 +65,18 @@ bagflow run --no-attach flow.yml     # bagごと: 4ノード構成の実測 約2
 終了処理はdaemon側で非同期に進む。処理の取りこぼしは従来どおり
 report.json の `coverage` / `incomplete` で検出できる。
 
+ジョブごとにbagが変わる場合はYAMLを編集せず引数で差し替える:
+
+```bash
+bagflow run --no-attach flow.yml \
+  --bag /data/incoming/run_xxx \
+  --report /data/reports/run_xxx.json
+```
+
+想定構成: bag受付(API/録画完了フック)→ ジョブキュー(同時実行数を制御)→
+`bagflow run --no-attach --bag ... --report ...` → report.json をDB/APIへ。
+常駐daemonのアイドル負荷は実測でCPUほぼ0%・RSS約50MB・共有メモリ0MB。
+
 ## ノードの書き方(Python)
 
 ```python
