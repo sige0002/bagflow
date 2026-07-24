@@ -64,6 +64,21 @@ with BagflowNode() as node:
 EOSの伝播・完了ack・受信件数の記録はヘルパが自動で行う。ノード作者が
 気にするのは「自分のinputsに来るデータ」と「出すもの」だけ。
 
+## 推奨パターン: デコードは1回、消費者はゼロコピーで共有
+
+重い変換(JPEGデコードなど)は専用ノードに切り出し、下流はその出力を
+購読する。デコードは全体で1回になり、複数の消費者は共有メモリ上の
+デコード済みフレームをゼロコピーで参照する:
+
+```
+source ─images─> decode ─frames┬─> grayscale ─gray─> video (mp4)
+                               └─> brightness (露出チェック)
+```
+
+`examples/image_pipeline/` がこの構成。生ピクセルはJPEGの約10倍の
+サイズになるため、デコード済みストリームの `queue_size` は控えめに
+(あふれるとdrop=間引きになり、reportのcoverageに現れる)。
+
 ## report.json
 
 - `results`: 各ノードが `report()` した内容

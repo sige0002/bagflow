@@ -1,0 +1,39 @@
+# Decode-once fan-out: one JPEG decode node feeds every image consumer.
+#
+#   source ─images─> decode ─frames┬─> grayscale ─gray─> video (mp4)
+#                                  └─> brightness (exposure check)
+#
+# Raw frames are ~10x larger than JPEG, so keep their queue_size moderate.
+bag: /path/to/your/rosbag_dir
+report: out/report.json
+
+nodes:
+  - id: decode
+    path: decode_image.py
+    inputs:
+      images: /camera/color/image_raw/compressed
+    outputs: [frames]
+
+  - id: grayscale
+    path: grayscale.py
+    inputs:
+      frames:
+        node: decode/frames
+        queue_size: 1000
+    outputs: [gray]
+
+  - id: brightness
+    path: brightness.py
+    inputs:
+      frames:
+        node: decode/frames
+        queue_size: 1000
+
+  - id: video
+    path: video_sink.py
+    inputs:
+      frames:
+        node: grayscale/gray
+        queue_size: 1000
+    env:
+      OUT_DIR: out
