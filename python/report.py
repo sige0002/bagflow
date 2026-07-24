@@ -74,14 +74,17 @@ def main():
         "wall_s": round(time.time() - t0, 3),
     }
     os.makedirs(os.path.dirname(os.path.abspath(report_path)) or ".", exist_ok=True)
-    with open(report_path, "w") as f:
+    # write atomically so `bagflow run --no-attach` never reads a partial file
+    tmp = report_path + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, report_path)
     print(f"BAGFLOW_REPORT_WRITTEN {report_path}", flush=True)
 
     node.send_output("done", pa.array([1]))
     # linger until the daemon closes our inputs so `done` is delivered first
     while True:
-        event = node.next(timeout=5.0)
+        event = node.next(timeout=1.0)
         if event is None or event["type"] == "STOP":
             break
 

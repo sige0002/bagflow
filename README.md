@@ -45,9 +45,25 @@ nodes:
 実行:
 
 ```bash
-bagflow check flow.yml   # プリフライトのみ(トピック存在・配線検証)
-bagflow run flow.yml     # 実行(dora dataflow を生成して dora start --attach)
+bagflow check flow.yml        # プリフライトのみ(トピック存在・配線検証)
+bagflow run flow.yml          # 実行(dora dataflow を生成して dora start --attach)
+bagflow run --no-attach flow.yml   # report.json が書かれた時点で即復帰(最速)
 ```
+
+## サービス組み込み(最速パターン)
+
+dora の coordinator/daemon は常駐できる。サービス起動時に一度 `dora up`
+しておき、bag ごとに `bagflow run --no-attach` を呼ぶと、データフローの
+終了処理(ノードのクリーンアップ約2〜3秒)を待たずに report.json 完成時点で
+復帰する(reportはアトミックに書かれるので部分読みの心配はない):
+
+```bash
+dora up                              # サービス起動時に1回(冪等・約1秒)
+bagflow run --no-attach flow.yml     # bagごと: 4ノード構成の実測 約2秒
+```
+
+終了処理はdaemon側で非同期に進む。処理の取りこぼしは従来どおり
+report.json の `coverage` / `incomplete` で検出できる。
 
 ## ノードの書き方(Python)
 

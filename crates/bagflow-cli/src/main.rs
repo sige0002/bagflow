@@ -27,7 +27,14 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Preflight-check and run a flow
-    Run { flow: PathBuf },
+    Run {
+        flow: PathBuf,
+        /// Start detached and return as soon as report.json is written,
+        /// leaving dataflow teardown to the daemon (fastest turnaround;
+        /// pair with a pre-started `dora up` daemon)
+        #[arg(long)]
+        no_attach: bool,
+    },
     /// Preflight-check only
     Check { flow: PathBuf },
 }
@@ -480,7 +487,7 @@ fn main() -> Result<()> {
             println!("report: {}", plan.report_path.display());
             Ok(())
         }
-        Cmd::Run { flow } => {
+        Cmd::Run { flow, no_attach } => {
             let plan = preflight(&flow)?;
             let dataflow_path = write_workdir(&plan)?;
 
@@ -488,16 +495,38 @@ fn main() -> Result<()> {
             let _ = Command::new("dora").arg("up").status();
 
             let t0 = std::time::Instant::now();
-            let status = Command::new("dora")
-                .arg("start")
-                .arg(&dataflow_path)
-                .arg("--attach")
-                .status()
-                .context("failed to run `dora` — is the dora CLI installed?")?;
-            let wall = t0.elapsed().as_secs_f64();
-            if !status.success() {
-                bail!("dora start failed with {status}");
+            if no_attach {
+                let _ = std::fs::remove_file(&plan.report_path);
+                let status = Command::new("dora")
+                    .arg("start")
+                    .arg(&dataflow_path)
+                    .arg("--detach")
+                    .status()
+                    .context("failed to run `dora` — is the dora CLI installed?")?;
+                if !status.success() {
+                    bail!("dora start failed with {status}");
+                }
+                // the report node writes report.json atomically once every
+                // node has drained its inputs; teardown continues in the daemon
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+                while !plan.report_path.exists() {
+                    if std::time::Instant::now() > deadline {
+                        bail!("timed out waiting for {}", plan.report_path.display());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+            } else {
+                let status = Command::new("dora")
+                    .arg("start")
+                    .arg(&dataflow_path)
+                    .arg("--attach")
+                    .status()
+                    .context("failed to run `dora` — is the dora CLI installed?")?;
+                if !status.success() {
+                    bail!("dora start failed with {status}");
+                }
             }
+            let wall = t0.elapsed().as_secs_f64();
             println!("\nflow finished in {wall:.2}s");
             println!("report: {}", plan.report_path.display());
             if let Ok(report) = std::fs::read_to_string(&plan.report_path) {

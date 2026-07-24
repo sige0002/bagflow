@@ -2,22 +2,30 @@
 frames, one message per frame. Decoding happens once here; every downstream
 consumer reads the decoded pixels zero-copy from shared memory."""
 
+import os
+from concurrent.futures import ThreadPoolExecutor
+
 import cv2
 import numpy as np
 import pyarrow as pa
 from bagflow import BagflowNode
 
+# cv2.imdecode releases the GIL, so a thread pool gives real parallelism
+WORKERS = min(8, os.cpu_count() or 4)
+
+
+def _decode(jpg):
+    return cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+
 
 def main():
-    with BagflowNode() as node:
+    with BagflowNode() as node, ThreadPoolExecutor(WORKERS) as pool:
         frames = 0
         for name, value, meta in node.messages():
             data = value.field("data")
             stamps = value.field("log_time")  # per-row timestamps from the bag
-            for i in range(len(data)):
-                img = cv2.imdecode(
-                    np.frombuffer(data[i].as_py(), np.uint8), cv2.IMREAD_COLOR
-                )
+            jpgs = [data[i].as_py() for i in range(len(data))]
+            for i, img in enumerate(pool.map(_decode, jpgs)):  # order preserved
                 if img is None:
                     continue
                 h, w, c = img.shape
