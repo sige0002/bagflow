@@ -1,0 +1,5 @@
+/target
+/.local
+.bagflow/
+out/
+__pycache__/

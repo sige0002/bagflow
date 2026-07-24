@@ -1,0 +1,12 @@
+[package]
+name = "bagflow-source"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+arrow = { version = "54.2", default-features = false }
+dora-node-api = "0.5"
+mcap2dora = { git = "https://github.com/sige0002/mcap2dora" }
+serde_json = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread"] }

@@ -1,0 +1,19 @@
+# Example flow: one camera topic -> grayscale conversion -> mp4 + report.json
+# Copy this file, set `bag` and the topic to match your rosbag, then:
+#   bagflow run flow.yml
+bag: /path/to/your/rosbag_dir        # directory with metadata.yaml + *.mcap
+report: out/report.json
+
+nodes:
+  - id: grayscale
+    path: grayscale.py
+    inputs:
+      images: /camera/color/image_raw/compressed   # any CompressedImage topic
+    outputs: [gray]
+
+  - id: video
+    path: video_sink.py
+    inputs:
+      frames: grayscale/gray
+    env:
+      OUT_DIR: out
