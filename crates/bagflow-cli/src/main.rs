@@ -11,7 +11,8 @@ use std::process::Command;
 
 const SOURCE_ID: &str = "bagflow_source";
 const REPORT_ID: &str = "bagflow_report";
-const DEFAULT_QUEUE: usize = 10000;
+/// conservative built-in default: bounds worst-case shm backlog per edge
+const DEFAULT_QUEUE: usize = 256;
 
 const PY_HELPER: &str = include_str!("../../../python/bagflow/__init__.py");
 const PY_REPORT: &str = include_str!("../../../python/report.py");
@@ -39,7 +40,29 @@ struct Flow {
     bag: PathBuf,
     #[serde(default = "default_report")]
     report: PathBuf,
+    /// flow-wide defaults, overridable per node and per input
+    #[serde(default)]
+    defaults: Defaults,
+    /// source batching (rows/bytes per Arrow batch sent per topic)
+    #[serde(default)]
+    source: SourceCfg,
     nodes: Vec<FlowNode>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct Defaults {
+    #[serde(default)]
+    queue_size: Option<usize>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct SourceCfg {
+    #[serde(default)]
+    batch_rows: Option<usize>,
+    #[serde(default)]
+    batch_bytes: Option<usize>,
 }
 
 fn default_report() -> PathBuf {
@@ -57,6 +80,9 @@ struct FlowNode {
     outputs: Vec<String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    /// default queue_size for every input of this node
+    #[serde(default)]
+    queue_size: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -85,10 +111,10 @@ impl FlowInput {
             },
         }
     }
-    fn queue_size(&self) -> usize {
+    fn queue_size(&self) -> Option<usize> {
         match self {
-            FlowInput::Short(_) => DEFAULT_QUEUE,
-            FlowInput::Long { queue_size, .. } => queue_size.unwrap_or(DEFAULT_QUEUE),
+            FlowInput::Short(_) => None,
+            FlowInput::Long { queue_size, .. } => *queue_size,
         }
     }
 }
@@ -304,18 +330,25 @@ fn preflight(flow_path: &Path) -> Result<Plan> {
 
     let mut source_outputs: Vec<String> = subscribed.values().cloned().collect();
     source_outputs.push("result".to_string());
+    let mut source_env = BTreeMap::from([
+        ("BAGFLOW_BAG".to_string(), bag.display().to_string()),
+        (
+            "BAGFLOW_TOPICS".to_string(),
+            serde_json::to_string(&subscribed)?,
+        ),
+    ]);
+    if let Some(rows) = flow.source.batch_rows {
+        source_env.insert("BAGFLOW_BATCH_ROWS".to_string(), rows.to_string());
+    }
+    if let Some(bytes) = flow.source.batch_bytes {
+        source_env.insert("BAGFLOW_BATCH_BYTES".to_string(), bytes.to_string());
+    }
     nodes.push(DoraNodeDef {
         id: SOURCE_ID.to_string(),
         path: source_bin.display().to_string(),
         inputs: BTreeMap::from([("done".to_string(), done_input())]),
         outputs: source_outputs,
-        env: BTreeMap::from([
-            ("BAGFLOW_BAG".to_string(), bag.display().to_string()),
-            (
-                "BAGFLOW_TOPICS".to_string(),
-                serde_json::to_string(&subscribed)?,
-            ),
-        ]),
+        env: source_env,
     });
 
     for n in &flow.nodes {
@@ -328,13 +361,13 @@ fn preflight(flow_path: &Path) -> Result<Plan> {
             } else {
                 re.to_string()
             };
-            inputs.insert(
-                input_name.clone(),
-                DoraInput {
-                    source,
-                    queue_size: input.queue_size(),
-                },
-            );
+            // precedence: per-input > per-node > flow defaults > built-in
+            let queue_size = input
+                .queue_size()
+                .or(n.queue_size)
+                .or(flow.defaults.queue_size)
+                .unwrap_or(DEFAULT_QUEUE);
+            inputs.insert(input_name.clone(), DoraInput { source, queue_size });
         }
         let mut outputs = n.outputs.clone();
         outputs.push("result".to_string());

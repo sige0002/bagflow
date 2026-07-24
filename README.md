@@ -75,9 +75,34 @@ source ─images─> decode ─frames┬─> grayscale ─gray─> video (mp4)
                                └─> brightness (露出チェック)
 ```
 
-`examples/image_pipeline/` がこの構成。生ピクセルはJPEGの約10倍の
-サイズになるため、デコード済みストリームの `queue_size` は控えめに
-(あふれるとdrop=間引きになり、reportのcoverageに現れる)。
+`examples/image_pipeline/` がこの構成。
+
+## キュー制御とメモリ
+
+`queue_size` はエッジごとの共有メモリ滞留の上限(メッセージ数)で、
+3段階で制御できる(優先度順):
+
+```yaml
+defaults:
+  queue_size: 256        # ① フロー全体のデフォルト(組み込み既定値も256)
+nodes:
+  - id: grayscale
+    queue_size: 128      # ② このノードの全入力のデフォルト
+    inputs:
+      frames:
+        node: decode/frames
+        queue_size: 64   # ③ 入力ごとの指定(最優先)
+source:
+  batch_rows: 64         # ソースのバッチ粒度(1メッセージのサイズ)も調整可
+  batch_bytes: 8388608
+```
+
+- 最悪滞留 ≒ queue_size × 1メッセージのサイズ。生ピクセル(VGAカラーで
+  約0.9MB/フレーム)を流すエッジは小さめに設定する
+- キューがあふれると古いメッセージからdrop(=間引き)される。dropは
+  report.json の coverage に必ず数字で現れるので、黙って欠けることはない
+- ノードは**逐次処理**を基本とする(例: `video_sink.py` はfps推定用の
+  先頭60フレームだけ保持し、以降はエンコーダへストリーミング書き込み)
 
 ## report.json
 

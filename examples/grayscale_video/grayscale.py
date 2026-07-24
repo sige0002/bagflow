@@ -12,6 +12,7 @@ def main():
         frames = 0
         for name, value, meta in node.messages():
             data = value.field("data")  # LargeBinary column of the topic batch
+            stamps = value.field("log_time")
             for i in range(len(data)):
                 img = cv2.imdecode(
                     np.frombuffer(data[i].as_py(), np.uint8), cv2.IMREAD_COLOR
@@ -27,8 +28,7 @@ def main():
                         "rows": 1,
                         "width": w,
                         "height": h,
-                        "t0": int(meta.get("t0", 0)),
-                        "t1": int(meta.get("t1", 0)),
+                        "stamp_ns": stamps[i].value,
                     },
                 )
                 frames += 1

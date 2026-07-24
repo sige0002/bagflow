@@ -3,9 +3,20 @@
 #   source ─images─> decode ─frames┬─> grayscale ─gray─> video (mp4)
 #                                  └─> brightness (exposure check)
 #
-# Raw frames are ~10x larger than JPEG, so keep their queue_size moderate.
+# queue_size bounds the worst-case shared-memory backlog per edge and can be
+# set at three levels: per input > per node > flow-wide `defaults`
+# (built-in default: 256 messages). Raw frames are ~10x larger than JPEG,
+# so keep their queues moderate: overflow drops oldest messages, which
+# shows up as reduced coverage in report.json.
 bag: /path/to/your/rosbag_dir
 report: out/report.json
+
+defaults:
+  queue_size: 256          # flow-wide default
+
+source:
+  batch_rows: 64           # rows per Arrow batch sent per topic
+  batch_bytes: 8388608     # 8 MiB
 
 nodes:
   - id: decode
@@ -16,10 +27,9 @@ nodes:
 
   - id: grayscale
     path: grayscale.py
+    queue_size: 128        # node-level default (raw frames: keep small)
     inputs:
-      frames:
-        node: decode/frames
-        queue_size: 1000
+      frames: decode/frames
     outputs: [gray]
 
   - id: brightness
@@ -27,13 +37,12 @@ nodes:
     inputs:
       frames:
         node: decode/frames
-        queue_size: 1000
+        queue_size: 128    # per-input override (highest precedence)
 
   - id: video
     path: video_sink.py
+    queue_size: 128
     inputs:
-      frames:
-        node: grayscale/gray
-        queue_size: 1000
+      frames: grayscale/gray
     env:
       OUT_DIR: out

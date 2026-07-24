@@ -13,9 +13,16 @@ def main():
             w, h, c = int(meta["width"]), int(meta["height"]), int(meta["channels"])
             img = value.to_numpy(zero_copy_only=True).reshape(h, w, c)
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            out_meta = dict(meta)
-            out_meta.pop("channels", None)
-            node.send("gray", pa.array(gray.reshape(-1)), out_meta)
+            node.send(
+                "gray",
+                pa.array(gray.reshape(-1)),
+                {
+                    "rows": 1,
+                    "width": w,
+                    "height": h,
+                    "stamp_ns": int(meta.get("stamp_ns", 0)),
+                },
+            )
             frames += 1
         node.report({"check": "grayscale", "frames_converted": frames})
 

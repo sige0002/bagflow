@@ -41,6 +41,15 @@ fn main() -> Result<()> {
     let topics: HashMap<String, String> =
         serde_json::from_str(&std::env::var("BAGFLOW_TOPICS").context("BAGFLOW_TOPICS not set")?)?;
 
+    let batch_rows: usize = std::env::var("BAGFLOW_BATCH_ROWS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(64);
+    let batch_bytes: usize = std::env::var("BAGFLOW_BATCH_BYTES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8 << 20);
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -57,8 +66,8 @@ fn main() -> Result<()> {
             &mapped,
             ReaderOptions {
                 mode: Mode::Decoded,
-                max_batch_rows: 256,
-                max_batch_bytes: 32 << 20,
+                max_batch_rows: batch_rows,
+                max_batch_bytes: batch_bytes,
             },
         )?;
         while let Some(tb) = reader.next_batch()? {
