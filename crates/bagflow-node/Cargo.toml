@@ -1,0 +1,12 @@
+[package]
+name = "bagflow-node"
+version = "0.1.0"
+edition = "2021"
+description = "Node SDK for bagflow: hides the EOS / done-ack / coverage protocol"
+
+[dependencies]
+anyhow = { workspace = true }
+arrow = { version = "54.2", default-features = false }
+dora-node-api = "0.5"
+serde_json = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread"] }

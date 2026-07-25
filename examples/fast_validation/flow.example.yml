@@ -10,13 +10,13 @@ defaults:
 
 nodes:
   - id: decode
-    path: ../../nodes/decode_image.py
+    path: ../../target/release/bagflow-decode   # Rust standard node (cargo build --release)
+    # path: ../../target/release/bagflow-decode-cuda  # nvJPEG variant, same contract
     inputs:
       images: /camera/color/image_raw/compressed
     outputs: [frames]
     env:
-      DECODE_SCALE: half   # libjpeg reduced decode: ~40% less CPU overall
-                           # when every consumer works at <=1/2 resolution
+      RESIZE: 224x224   # output resolution — change here, no code edits
 
   - id: blur
     path: ../../nodes/blur_check.py

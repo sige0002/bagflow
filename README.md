@@ -139,7 +139,9 @@ source:
 
 | ノード | 検出対象 | 閾値(env) |
 |---|---|---|
-| `decode_image.py` | JPEG→生フレーム(スレッド並列デコード、下流で共有) | — |
+| **`bagflow-decode`(Rust)** | JPEG→生フレーム。`RESIZE`(例 `224x224`)で出力解像度をflow.ymlから指定。DCTスケールデコード+SIMDリサイズ | `RESIZE`, `WORKERS` |
+| `bagflow-decode-cuda`(Rust) | 同上のnvJPEG版(契約は同一、flow.ymlで差し替え)。CUDAライブラリは実行時dlopen | `RESIZE`, `BAGFLOW_NVJPEG` 等 |
+| `decode_image.py` | 同上のPython参照実装 | `DECODE_SCALE` |
 | `blur_check.py` | ブレ・ピンボケ(Laplacian分散) | `BLUR_MIN`, `MAX_RATIO` |
 | `brightness_check.py` | 露出異常(暗すぎ/白飛び) | `DARK_MEAN`, `BRIGHT_MEAN`, `MAX_RATIO` |
 | `freeze_check.py` | カメラ固まり(連続同一フレーム) | `FREEZE_EPS`, `MAX_RUN` |
@@ -147,7 +149,18 @@ source:
 | `topic_rate_check.py` | 全トピックの記録有無・レート(metadataのみ、デコード不要) | `EXPECT_HZ`, `TOLERANCE` |
 
 組み合わせ例は `examples/fast_validation/flow.example.yml`(実測: 6ノードで
-約1.5秒)。重いチェック(blur等)がデコードに追いつかない場合はキューあふれで
+約1秒)。
+
+デコードの実測(VGA 3037フレーム→224×224、同一契約で差し替え可能):
+
+| 実装 | デコードwall | 備考 |
+|---|---:|---|
+| `bagflow-decode`(Rust/turbojpeg) | **0.67s** | 推奨デフォルト |
+| `decode_image.py`(Python/cv2) | ~1.3s | 参照実装 |
+| `bagflow-decode-cuda`(nvJPEG) | 4.1s | 逐次デコードPoC。小画像はカーネル起動+転送が支配的なため、バッチAPI+pinnedメモリ+HWエンジンbackend化するまでは高解像度・多カメラ向けの布石という位置づけ |
+
+Rustノード(`bagflow-node`クレート)はPythonヘルパと同じプロトコルを実装して
+おり、report.json・coverage・EOS/ackの挙動は言語によらず同一。重いチェック(blur等)がデコードに追いつかない場合はキューあふれで
 自動的にサンプリングになり、その割合は coverage の `ratio_vs_upstream` に
 正確に現れる — クイックゲートでは「全フレームの20%を検査した」を明示した上で
 判定する運用ができる。

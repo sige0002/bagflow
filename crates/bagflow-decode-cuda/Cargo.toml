@@ -1,0 +1,13 @@
+[package]
+name = "bagflow-decode-cuda"
+version = "0.1.0"
+edition = "2021"
+description = "CUDA (nvJPEG) decode node: CompressedImage batches -> raw BGR frames"
+
+[dependencies]
+anyhow = { workspace = true }
+arrow = { version = "54.2", default-features = false }
+bagflow-node = { path = "../bagflow-node" }
+fast_image_resize = "5"
+libloading = "0.8"
+serde_json = { workspace = true }

@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/bagflow-source", "crates/bagflow-cli"]
+members = [
+    "crates/bagflow-source",
+    "crates/bagflow-cli",
+    "crates/bagflow-node",
+    "crates/bagflow-decode",
+    "crates/bagflow-decode-cuda",
+]
 
 [workspace.dependencies]
 anyhow = "1"
