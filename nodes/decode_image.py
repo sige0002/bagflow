@@ -1,6 +1,12 @@
 """Standard-style decode node: JPEG (CompressedImage) batches -> raw BGR
 frames, one message per frame. Decoding happens once here; every downstream
-consumer reads the decoded pixels zero-copy from shared memory."""
+consumer reads the decoded pixels zero-copy from shared memory.
+
+env:
+  DECODE_SCALE  full | half | quarter (default full). libjpeg decodes
+                directly at 1/2 or 1/4 size for a fraction of the cost —
+                use when every consumer works at reduced resolution anyway.
+"""
 
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -13,9 +19,16 @@ from bagflow import BagflowNode
 # cv2.imdecode releases the GIL, so a thread pool gives real parallelism
 WORKERS = min(8, os.cpu_count() or 4)
 
+_FLAGS = {
+    "full": cv2.IMREAD_COLOR,
+    "half": cv2.IMREAD_REDUCED_COLOR_2,
+    "quarter": cv2.IMREAD_REDUCED_COLOR_4,
+}
+_FLAG = _FLAGS[os.environ.get("DECODE_SCALE", "full")]
+
 
 def _decode(jpg):
-    return cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+    return cv2.imdecode(np.frombuffer(jpg, np.uint8), _FLAG)
 
 
 def main():
