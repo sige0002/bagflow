@@ -1,0 +1,45 @@
+# Post-recording quick gate (<5s target): decode one camera once, fan the
+# frames out to blur / exposure / freeze checks, gap-check a state topic,
+# and rate-check every topic from metadata (no decoding). The resulting
+# report.json feeds the operator notification.
+bag: /path/to/your/rosbag_dir
+report: out/report.json
+
+defaults:
+  queue_size: 256
+
+nodes:
+  - id: decode
+    path: ../../nodes/decode_image.py
+    inputs:
+      images: /camera/color/image_raw/compressed
+    outputs: [frames]
+
+  - id: blur
+    path: ../../nodes/blur_check.py
+    queue_size: 128
+    inputs:
+      frames: decode/frames
+
+  - id: brightness
+    path: ../../nodes/brightness_check.py
+    queue_size: 128
+    inputs:
+      frames: decode/frames
+
+  - id: freeze
+    path: ../../nodes/freeze_check.py
+    queue_size: 128
+    inputs:
+      frames: decode/frames
+
+  - id: stamp_gap
+    path: ../../nodes/stamp_gap_check.py
+    inputs:
+      msgs: /joint_states
+
+  - id: topic_rate
+    path: ../../nodes/topic_rate_check.py
+    env:
+      EXPECT_HZ: '{"/camera/color/image_raw/compressed": 30, "/joint_states": 100}'
+      TOLERANCE: "0.9"

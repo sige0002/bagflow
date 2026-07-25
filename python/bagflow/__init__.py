@@ -31,6 +31,7 @@ class BagflowNode:
         self._outputs = _env_set("BAGFLOW_OUTPUTS")
         self._eos = set()
         self._received = {}
+        self._sent = {}
         self._done = False
         self._stopped = False
 
@@ -59,7 +60,9 @@ class BagflowNode:
 
     def send(self, output, data, metadata=None):
         """Send a data message on one of this node's declared outputs."""
-        self._node.send_output(output, data, metadata or {})
+        metadata = metadata or {}
+        self._sent[output] = self._sent.get(output, 0) + int(metadata.get("rows", 1))
+        self._node.send_output(output, data, metadata)
 
     def report(self, record):
         """Send a result record (any JSON-serializable dict) to report.json."""
@@ -67,7 +70,9 @@ class BagflowNode:
 
     def close(self):
         eos = {"eos": True}
-        self.report({"_bagflow_counts": self._received})
+        self.report(
+            {"_bagflow_counts": {"received": self._received, "sent": self._sent}}
+        )
         for out in self._outputs:
             self._node.send_output(out, pa.array([], type=pa.uint8()), eos)
         self._node.send_output("result", pa.array([], type=pa.string()), eos)

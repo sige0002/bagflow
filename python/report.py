@@ -43,27 +43,35 @@ def main():
                 if "_bagflow_counts" in record:
                     counts[node_id] = record["_bagflow_counts"]
                 elif "_bagflow_source" in record:
-                    counts[node_id] = record["_bagflow_source"]
+                    counts[node_id] = {"sent": record["_bagflow_source"], "received": {}}
                 else:
                     results.setdefault(node_id, []).append(record)
         elif event["type"] == "STOP":
             break
 
-    source_sent = counts.get(SOURCE_ID, {})
+    source_sent = counts.get(SOURCE_ID, {}).get("sent", {})
     coverage = {}
     for node_id, wires in wiring.items():
         for input_name, ref in wires.items():
-            if not ref.startswith("/"):
-                continue  # node-to-node edge; only bag topics have bag counts
-            received = counts.get(node_id, {}).get(input_name, 0)
-            in_bag = expected.get(ref)
-            coverage[f"{node_id}.{input_name}"] = {
-                "topic": ref,
-                "rows_received": received,
-                "rows_sent_by_source": source_sent.get(ref),
-                "rows_in_bag": in_bag,
-                "ratio_vs_bag": round(received / in_bag, 4) if in_bag else None,
-            }
+            received = counts.get(node_id, {}).get("received", {}).get(input_name, 0)
+            if ref.startswith("/"):  # bag topic subscription
+                in_bag = expected.get(ref)
+                coverage[f"{node_id}.{input_name}"] = {
+                    "topic": ref,
+                    "rows_received": received,
+                    "rows_sent_by_source": source_sent.get(ref),
+                    "rows_in_bag": in_bag,
+                    "ratio_vs_bag": round(received / in_bag, 4) if in_bag else None,
+                }
+            else:  # node-to-node edge: compare against the producer's sent count
+                producer, output = ref.split("/", 1)
+                sent = counts.get(producer, {}).get("sent", {}).get(output)
+                coverage[f"{node_id}.{input_name}"] = {
+                    "from": ref,
+                    "rows_received": received,
+                    "rows_sent_upstream": sent,
+                    "ratio_vs_upstream": round(received / sent, 4) if sent else None,
+                }
 
     # per-topic stats for the whole bag straight from metadata.yaml — lets a
     # quick post-recording flow flag missing topics / rate drops for free

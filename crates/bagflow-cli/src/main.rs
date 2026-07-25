@@ -386,6 +386,14 @@ fn preflight(
         env: source_env,
     });
 
+    let expected: BTreeMap<&String, u64> = bag_topics.iter().map(|(k, (_, c))| (k, *c)).collect();
+    let expected_json = serde_json::to_string(&expected)?;
+    let bag_info = serde_json::json!({
+        "path": bag.display().to_string(),
+        "duration_s": meta.as_ref().and_then(|m| m.duration.as_ref()).map(|d| d.nanoseconds as f64 / 1e9),
+        "message_count": meta.as_ref().and_then(|m| m.message_count),
+    });
+
     for n in &flow.nodes {
         let mut inputs = BTreeMap::new();
         inputs.insert("done".to_string(), done_input());
@@ -414,6 +422,8 @@ fn preflight(
         );
         env.insert("BAGFLOW_OUTPUTS".to_string(), n.outputs.join(","));
         env.insert("BAGFLOW_NODE_ID".to_string(), n.id.clone());
+        env.insert("BAGFLOW_EXPECTED".to_string(), expected_json.clone());
+        env.insert("BAGFLOW_BAGINFO".to_string(), bag_info.to_string());
         let pypath = pylib.display().to_string();
         env.entry("PYTHONPATH".to_string())
             .and_modify(|v| *v = format!("{pypath}:{v}"))
@@ -446,13 +456,6 @@ fn preflight(
             },
         );
     }
-    let expected: BTreeMap<&String, u64> =
-        bag_topics.iter().map(|(k, (_, c))| (k, *c)).collect();
-    let bag_info = serde_json::json!({
-        "path": bag.display().to_string(),
-        "duration_s": meta.as_ref().and_then(|m| m.duration.as_ref()).map(|d| d.nanoseconds as f64 / 1e9),
-        "message_count": meta.as_ref().and_then(|m| m.message_count),
-    });
     let report_input_names = report_inputs.keys().cloned().collect::<Vec<_>>().join(",");
     nodes.push(DoraNodeDef {
         id: REPORT_ID.to_string(),
@@ -464,10 +467,7 @@ fn preflight(
                 "BAGFLOW_REPORT".to_string(),
                 report_path.display().to_string(),
             ),
-            (
-                "BAGFLOW_EXPECTED".to_string(),
-                serde_json::to_string(&expected)?,
-            ),
+            ("BAGFLOW_EXPECTED".to_string(), expected_json.clone()),
             (
                 "BAGFLOW_WIRING".to_string(),
                 serde_json::to_string(&wiring)?,

@@ -132,10 +132,32 @@ source:
 - ノードは**逐次処理**を基本とする(例: `video_sink.py` はfps推定用の
   先頭60フレームだけ保持し、以降はエンコーダへストリーミング書き込み)
 
+## 標準ノード(nodes/)
+
+録画直後のクイック検証(<5秒)向けに `nodes/` に機能ノードを同梱している
+(examples/ はデモ、nodes/ が実運用向けのライブラリ):
+
+| ノード | 検出対象 | 閾値(env) |
+|---|---|---|
+| `decode_image.py` | JPEG→生フレーム(スレッド並列デコード、下流で共有) | — |
+| `blur_check.py` | ブレ・ピンボケ(Laplacian分散) | `BLUR_MIN`, `MAX_RATIO` |
+| `brightness_check.py` | 露出異常(暗すぎ/白飛び) | `DARK_MEAN`, `BRIGHT_MEAN`, `MAX_RATIO` |
+| `freeze_check.py` | カメラ固まり(連続同一フレーム) | `FREEZE_EPS`, `MAX_RUN` |
+| `stamp_gap_check.py` | 任意トピックの欠落・停止(タイムスタンプ間隔) | `GAP_MS` / `GAP_FACTOR`, `MAX_GAPS` |
+| `topic_rate_check.py` | 全トピックの記録有無・レート(metadataのみ、デコード不要) | `EXPECT_HZ`, `TOLERANCE` |
+
+組み合わせ例は `examples/fast_validation/flow.example.yml`(実測: 6ノードで
+約1.5秒)。重いチェック(blur等)がデコードに追いつかない場合はキューあふれで
+自動的にサンプリングになり、その割合は coverage の `ratio_vs_upstream` に
+正確に現れる — クイックゲートでは「全フレームの20%を検査した」を明示した上で
+判定する運用ができる。
+
 ## report.json
 
-- `results`: 各ノードが `report()` した内容
-- `coverage`: トピック購読ごとの「bag内件数 / ソース送信数 / 受信数」照合
+- `results`: 各ノードが `report()` した内容(各チェックの `ok` / 統計)
+- `coverage`: 全エッジの受信数照合 — トピック購読は「bag内件数/ソース送信数/
+  受信数」、ノード間エッジは「上流送信数/受信数」(`ratio_vs_upstream`)
+- `bag.topics`: 全トピックの件数とHz(metadata由来)
 - `incomplete`: EOSが届かなかった(異常終了した)ノードの一覧
 
 ## セットアップ
