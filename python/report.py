@@ -65,6 +65,17 @@ def main():
                 "ratio_vs_bag": round(received / in_bag, 4) if in_bag else None,
             }
 
+    # per-topic stats for the whole bag straight from metadata.yaml — lets a
+    # quick post-recording flow flag missing topics / rate drops for free
+    duration_s = bag_info.get("duration_s")
+    bag_info["topics"] = {
+        topic: {
+            "count": count,
+            "hz": round(count / duration_s, 2) if duration_s else None,
+        }
+        for topic, count in sorted(expected.items())
+    }
+
     report = {
         "bag": bag_info,
         "results": results,
