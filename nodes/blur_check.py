@@ -13,6 +13,10 @@ env:
              consumes is usually the right semantics; variance statistics
              change with resolution, so retune BLUR_MIN when changing it.
   WORKERS    analysis threads (default 4; 0 = analyze inline)
+  STRIDE     analyze every Nth frame (default 1 = all). Blur is a
+             statistical property, so explicit subsampling is a valid
+             budget lever; the sampled fraction still shows up in the
+             report (frames vs coverage).
 """
 
 import os
@@ -20,6 +24,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 import cv2
+import numpy as np
 from bagflow import BagflowNode
 
 MAX_IN_FLIGHT = 256  # bounds buffered frame copies (~0.9 MB each at VGA)
@@ -37,12 +42,16 @@ def main():
     max_ratio = float(os.environ.get("MAX_RATIO", "0.05"))
     resize = _parse_resize(os.environ.get("RESIZE", ""))
     workers = int(os.environ.get("WORKERS", "4"))
+    stride = max(1, int(os.environ.get("STRIDE", "1")))
 
     def variance(flat, w, h, c):
         gray = cv2.cvtColor(flat.reshape(h, w, c), cv2.COLOR_BGR2GRAY)
         if resize:
             gray = cv2.resize(gray, resize, interpolation=cv2.INTER_AREA)
-        return cv2.Laplacian(gray, cv2.CV_64F).var()
+        # int16 Laplacian: same kernel output as CV_64F at ~half the cost
+        lap = cv2.Laplacian(gray, cv2.CV_16S)
+        _, std = cv2.meanStdDev(lap)
+        return float(std[0][0]) ** 2
 
     frames = 0
     blurry = 0
@@ -58,10 +67,14 @@ def main():
             blurry += 1
 
     with BagflowNode() as node:
+        seen = 0
         if workers > 0:
             pool = ThreadPoolExecutor(workers)
             pending = deque()
             for name, value, meta in node.messages():
+                seen += 1
+                if (seen - 1) % stride != 0:
+                    continue
                 w, h, c = int(meta["width"]), int(meta["height"]), int(meta["channels"])
                 flat = value.to_numpy(zero_copy_only=True).copy()  # shm is recycled
                 pending.append(pool.submit(variance, flat, w, h, c))
@@ -72,6 +85,9 @@ def main():
             pool.shutdown()
         else:
             for name, value, meta in node.messages():
+                seen += 1
+                if (seen - 1) % stride != 0:
+                    continue
                 w, h, c = int(meta["width"]), int(meta["height"]), int(meta["channels"])
                 account(variance(value.to_numpy(zero_copy_only=True), w, h, c))
 
@@ -87,6 +103,8 @@ def main():
                 "threshold": blur_min,
                 "eval_resolution": f"{resize[0]}x{resize[1]}" if resize else "native",
                 "workers": workers,
+                "stride": stride,
+                "frames_seen": seen,
                 "ok": frames > 0 and ratio <= max_ratio,
             }
         )
