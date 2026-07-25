@@ -20,6 +20,9 @@ nodes:
     queue_size: 128
     inputs:
       frames: decode/frames
+    env:
+      RESIZE: 224x224   # evaluate at the downstream model's input resolution
+      WORKERS: "4"      # keeps full coverage even at full camera rate
 
   - id: brightness
     path: ../../nodes/brightness_check.py
